@@ -44,9 +44,20 @@ COMPONENT_EXPORT_NAME = {"llm": "llm.pt", "flow": "flow.pt", "hifigan": "hift.pt
 
 # Static, architecture-only assets that don't change during fine-tuning, copied
 # through from the pretrained snapshot into every experiment's exported checkpoint dir.
-# `cosyvoice.yaml` here is the *inference-time* config shipped inside the pretrained
-# model dir, distinct from the training recipe's conf/cosyvoice3.yaml.
-STATIC_ASSETS = ["cosyvoice.yaml", "campplus.onnx", "speech_tokenizer_v3.onnx", "spk2info.pt", "CosyVoice-BlankEN"]
+# Maps the pretrained snapshot's filename -> what the inference loader
+# (cosyvoice/cli/cosyvoice.py's CosyVoice.__init__) actually looks for in model_dir.
+# Confirmed live against a real downloaded FunAudioLLM/Fun-CosyVoice3-0.5B-2512
+# snapshot: it ships its config as `cosyvoice3.yaml`, but CosyVoice.__init__ hardcodes
+# `{model_dir}/cosyvoice.yaml` -- same class of naming mismatch as hifigan.pt/hift.pt
+# above, just for the config file instead of a weights file. spk2info.pt was not
+# present in that snapshot at all; handled gracefully below (warn + skip) either way.
+STATIC_ASSETS = {
+    "cosyvoice3.yaml": "cosyvoice.yaml",
+    "campplus.onnx": "campplus.onnx",
+    "speech_tokenizer_v3.onnx": "speech_tokenizer_v3.onnx",
+    "spk2info.pt": "spk2info.pt",
+    "CosyVoice-BlankEN": "CosyVoice-BlankEN",
+}
 
 TRAIN_ENGINE = "torch_ddp"
 DIST_BACKEND = "nccl"
@@ -138,9 +149,9 @@ def assemble_inference_checkpoint(
     final_dir = exp_root / "inference_ready"
     final_dir.mkdir(parents=True, exist_ok=True)
 
-    for asset in STATIC_ASSETS:
-        src = RemotePaths.PRETRAINED_DIR / asset
-        dst = final_dir / asset
+    for src_name, dst_name in STATIC_ASSETS.items():
+        src = RemotePaths.PRETRAINED_DIR / src_name
+        dst = final_dir / dst_name
         if not src.exists():
             logger.warning("expected static asset %s not found in pretrained snapshot, skipping", src)
             continue
