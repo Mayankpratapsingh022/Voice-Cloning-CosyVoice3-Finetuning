@@ -47,8 +47,15 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # with its own freshly-resolved setuptools -- our pin here never reaches that
   # isolated build env. Confirmed live: pinning setuptools<81 here changed nothing,
   # the build still failed from inside /tmp/pip-build-env-*/.
-  echo "[pod_setup] (2/8) pinning setuptools<81 in this venv (necessary, not sufficient on its own)"
-  pip install "setuptools<81"
+  #
+  # wheel is needed alongside it: with --no-build-isolation (below), pip no longer
+  # auto-installs a package's declared build tools into an isolated env for you --
+  # you're on the hook for having them in the real venv yourself. Without wheel
+  # present, setuptools doesn't know the `bdist_wheel` command, and the build fails
+  # with "error: invalid command 'bdist_wheel'" -- confirmed live, one layer past the
+  # pkg_resources failure once that part was actually fixed.
+  echo "[pod_setup] (2/8) pinning setuptools<81 and installing wheel in this venv"
+  pip install "setuptools<81" wheel
 
   echo "[pod_setup] (3/8) installing torch + torchaudio (cu121) -- large download, several minutes"
   pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
