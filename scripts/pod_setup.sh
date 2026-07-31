@@ -37,22 +37,32 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # wheel builds) stays visible. Deliberate -- this block can run 10-25 min, dominated
   # by torch/tensorrt downloads and deepspeed compiling CUDA extensions from source,
   # and a silent multi-minute gap is indistinguishable from a hang without it.
-  echo "[pod_setup] (1/6) upgrading pip"
+  echo "[pod_setup] (1/8) upgrading pip"
   pip install --upgrade pip
 
-  # setuptools>=81 dropped the pkg_resources module entirely. openai-whisper==20231117
-  # (a CosyVoice3 dependency) does `import pkg_resources` in setup.py, which breaks its
-  # build under a modern venv's bundled setuptools. Same root cause as the webrtcvad
-  # pin in this project's own pyproject.toml -- pinned here too, and *before* installing
-  # anything else, since step 3 below needs it and pyproject.toml's own pin (step 6)
-  # applies too late to help CosyVoice3's own requirements.txt.
-  echo "[pod_setup] (2/6) pinning setuptools<81 (openai-whisper's setup.py needs pkg_resources)"
+  # setuptools>=81 dropped the pkg_resources module entirely, which openai-whisper's
+  # setup.py needs. Pinning it in *this* venv is necessary but NOT sufficient: pip
+  # builds PEP 517 packages (anything with a pyproject.toml-based build, which
+  # openai-whisper uses) in a separate, temporary, isolated environment by default,
+  # with its own freshly-resolved setuptools -- our pin here never reaches that
+  # isolated build env. Confirmed live: pinning setuptools<81 here changed nothing,
+  # the build still failed from inside /tmp/pip-build-env-*/.
+  echo "[pod_setup] (2/8) pinning setuptools<81 in this venv (necessary, not sufficient on its own)"
   pip install "setuptools<81"
 
-  echo "[pod_setup] (3/6) installing torch + torchaudio (cu121) -- large download, several minutes"
+  echo "[pod_setup] (3/8) installing torch + torchaudio (cu121) -- large download, several minutes"
   pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
 
-  echo "[pod_setup] (4/7) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
+  # The actual fix: --no-build-isolation makes pip build using *this* venv's already-
+  # installed packages (including the setuptools<81 pin above) instead of spinning up
+  # an isolated build env with its own unpinned, too-new setuptools. Installed here,
+  # its own explicit step, before requirements.txt: once it's already satisfied at the
+  # pinned version, pip won't try to rebuild it again (with the same isolation problem)
+  # when it hits openai-whisper's line in requirements.txt below.
+  echo "[pod_setup] (4/8) installing openai-whisper with build isolation disabled"
+  pip install --no-build-isolation openai-whisper==20231117
+
+  echo "[pod_setup] (5/8) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
   echo "[pod_setup]     compiles CUDA extensions from source and can take 5-15 min on its own"
   # No `|| true` here. It used to be here on the (wrong) assumption that this file's
   # platform-conditional lines (e.g. `onnxruntime==...; sys_platform == "darwin"`)
@@ -66,7 +76,7 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # next run properly retries instead of lying about having succeeded.
   pip install -r "$REPO_ROOT/requirements.txt"
 
-  echo "[pod_setup] (5/7) installing onnxruntime-gpu"
+  echo "[pod_setup] (6/8) installing onnxruntime-gpu"
   pip install onnxruntime-gpu==1.18.0
 
   # modelscope is in requirements.txt too, but if *any* package in that combined
@@ -75,10 +85,10 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # build failure took modelscope down with it, and download_pretrained()'s `from
   # modelscope import snapshot_download` broke as a result). Its own dedicated,
   # unprotected step now, so a requirements.txt failure elsewhere can't hide this.
-  echo "[pod_setup] (6/7) installing modelscope (needed by download_pretrained, not just requirements.txt)"
+  echo "[pod_setup] (7/8) installing modelscope (needed by download_pretrained, not just requirements.txt)"
   pip install modelscope==1.20.0
 
-  echo "[pod_setup] (7/7) installing voiceclone package"
+  echo "[pod_setup] (8/8) installing voiceclone package"
   pip install -e "$WORKSPACE/voiceclone-project"
 
   touch "$WORKSPACE/.setup_complete"
