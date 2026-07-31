@@ -52,14 +52,23 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   echo "[pod_setup] (3/6) installing torch + torchaudio (cu121) -- large download, several minutes"
   pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
 
-  echo "[pod_setup] (4/6) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
+  echo "[pod_setup] (4/7) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
   echo "[pod_setup]     compiles CUDA extensions from source and can take 5-15 min on its own"
   pip install -r "$REPO_ROOT/requirements.txt" || true  # some deps in this file are platform-conditional; non-fatal
 
-  echo "[pod_setup] (5/6) installing onnxruntime-gpu"
+  echo "[pod_setup] (5/7) installing onnxruntime-gpu"
   pip install onnxruntime-gpu==1.18.0
 
-  echo "[pod_setup] (6/6) installing voiceclone package"
+  # modelscope is in requirements.txt too, but if *any* package in that combined
+  # install fails to resolve, pip can silently drop others from the same batch
+  # rather than partially installing -- exactly what happened here (openai-whisper's
+  # build failure took modelscope down with it, and download_pretrained()'s `from
+  # modelscope import snapshot_download` broke as a result). Its own dedicated,
+  # unprotected step now, so a requirements.txt failure elsewhere can't hide this.
+  echo "[pod_setup] (6/7) installing modelscope (needed by download_pretrained, not just requirements.txt)"
+  pip install modelscope==1.20.0
+
+  echo "[pod_setup] (7/7) installing voiceclone package"
   pip install -e "$WORKSPACE/voiceclone-project"
 
   touch "$WORKSPACE/.setup_complete"
