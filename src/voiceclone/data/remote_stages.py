@@ -59,6 +59,13 @@ def extract_speech_tokens(speaker_prefix: str, split: str) -> None:
 def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int = 1000) -> None:
     manifest_dir = RemotePaths.DATASET_DIR / speaker_prefix / split
     parquet_dir = manifest_dir / "parquet"
+    # make_parquet_list.py writes into --des_dir but never creates it; upstream's
+    # run.sh does `mkdir -p data/$x/parquet` on the line before invoking it. Worse,
+    # the failure is quiet: the per-shard writes happen inside a multiprocessing pool
+    # via apply_async, whose exceptions are swallowed unless .get() is called, so the
+    # progress bar runs to 240/240 "successfully" and only the main process's final
+    # data.list write surfaces the error.
+    parquet_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
         "python", str(RemotePaths.REPO_ROOT / "tools" / "make_parquet_list.py"),
         "--num_utts_per_parquet", str(num_utts_per_parquet),

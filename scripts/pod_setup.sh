@@ -83,8 +83,16 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # next run properly retries instead of lying about having succeeded.
   pip install -r "$REPO_ROOT/requirements.txt"
 
-  echo "[pod_setup] (6/8) installing onnxruntime-gpu"
-  pip install onnxruntime-gpu==1.18.0
+  # The --extra-index-url is load-bearing, not decoration: plain PyPI's
+  # onnxruntime-gpu 1.18.0 is built against CUDA 11, so on this CUDA 12 image it
+  # fails to load libcublasLt.so.11 and silently falls back to CPU (confirmed live:
+  # speech-token extraction still completed, just far slower than it should have).
+  # This index is Microsoft's CUDA 12 build feed, and is exactly why CosyVoice3's
+  # own requirements.txt carries the same URL -- dropping it when hoisting this into
+  # its own explicit step is what caused the fallback.
+  echo "[pod_setup] (6/8) installing onnxruntime-gpu (CUDA 12 build)"
+  pip install onnxruntime-gpu==1.18.0 \
+    --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/
 
   # modelscope is in requirements.txt too, but if *any* package in that combined
   # install fails to resolve, pip can silently drop others from the same batch
