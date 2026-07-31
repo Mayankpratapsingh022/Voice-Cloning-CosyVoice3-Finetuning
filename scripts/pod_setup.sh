@@ -14,7 +14,11 @@ mkdir -p "$WORKSPACE"
 if [ ! -d "$VENV" ]; then
   echo "[pod_setup] installing system packages"
   apt-get update -qq
-  apt-get install -y -qq git git-lfs sox libsox-dev ffmpeg build-essential python3.10 python3.10-venv python3-pip >/dev/null
+  # tmux is not in the base CUDA image and is not optional in practice: training runs
+  # here are long enough that doing them outside a detachable session means an SSH
+  # drop kills the run.
+  apt-get install -y -qq git git-lfs sox libsox-dev ffmpeg build-essential tmux \
+    python3.10 python3.10-venv python3-pip >/dev/null
 
   echo "[pod_setup] creating venv at $VENV"
   python3.10 -m venv "$VENV"
