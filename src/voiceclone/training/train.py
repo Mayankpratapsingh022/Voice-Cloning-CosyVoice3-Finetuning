@@ -29,7 +29,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from voiceclone.config import RemotePaths
+from voiceclone.config import RemotePaths, cosyvoice_subprocess_env
 from voiceclone.logging_utils import get_logger
 from voiceclone.training.experiment import ExperimentConfig, render_experiment_config
 
@@ -118,7 +118,7 @@ def train_component(speaker_prefix: str, experiment_name: str, component: str, c
         "--use_amp",
     ]
     logger.info("training %s/%s: %s", experiment_name, component, " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT))
+    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
 
 
 def average_and_export_component(speaker_prefix: str, experiment_name: str, component: str) -> None:
@@ -139,7 +139,7 @@ def average_and_export_component(speaker_prefix: str, experiment_name: str, comp
         "--val_best",
     ]
     logger.info("averaging %s/%s: %s", experiment_name, component, " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT))
+    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
 
 
 def assemble_inference_checkpoint(

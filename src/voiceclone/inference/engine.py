@@ -1,20 +1,36 @@
 """Thin, dependency-isolated wrapper around CosyVoice3's `AutoModel` inference class.
 
-Kept separate from the Modal serving/CLI layers so it can be unit-tested (with the
-CosyVoice import mocked) without needing the full container image, and so the serving
-and batch-eval code paths (evaluation/run_eval.py) share one implementation of
-"load a checkpoint, enroll a voice, synthesize text" instead of two.
+Kept separate from the serving/CLI layers so it can be unit-tested (with the CosyVoice
+import mocked) without needing the full environment, and so the serving and batch-eval
+code paths (evaluation/run_eval.py) share one implementation of "load a checkpoint,
+enroll a voice, synthesize text" instead of two.
 """
 
 from __future__ import annotations
 
+import sys
 import typing
 from pathlib import Path
+
+from voiceclone.config import cosyvoice_pythonpath
 
 if typing.TYPE_CHECKING:
     import torch
 
 DEFAULT_SPK_ID = "voiceclone_default"
+
+
+def _ensure_cosyvoice_importable() -> None:
+    """Put CosyVoice3's cloned repo on sys.path for this process.
+
+    Subprocess call sites get this via cosyvoice_subprocess_env()'s PYTHONPATH, but
+    this module imports `cosyvoice` in-process, so it needs the same entries added
+    directly. Same underlying reason: CosyVoice3 is a cloned repo, not an installed
+    package.
+    """
+    for entry in reversed(cosyvoice_pythonpath()):
+        if entry not in sys.path:
+            sys.path.insert(0, entry)
 
 
 class VoiceCloneEngine:
@@ -26,6 +42,7 @@ class VoiceCloneEngine:
     """
 
     def __init__(self, model_dir: str):
+        _ensure_cosyvoice_importable()
         from cosyvoice.cli.cosyvoice import AutoModel
 
         self.model = AutoModel(model_dir=model_dir)

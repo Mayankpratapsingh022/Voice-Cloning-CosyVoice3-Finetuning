@@ -7,6 +7,7 @@ new base checkpoint, new RunPod resources) by editing one .env file.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import Field
@@ -69,3 +70,33 @@ class RemotePaths:
     DATASET_DIR = WORKSPACE / "dataset"
     CHECKPOINT_DIR = WORKSPACE / "checkpoints"
     HF_CACHE_DIR = WORKSPACE / "hf-cache"
+
+
+def cosyvoice_pythonpath() -> list[str]:
+    """The two entries CosyVoice3 needs on sys.path to be importable.
+
+    It is a cloned repo, not a pip-installed package, so `import cosyvoice` only
+    resolves if the repo root is on the path; Matcha-TTS is a git submodule the code
+    imports directly (upstream's own example.py does `sys.path.append` for it). This
+    mirrors what `examples/libritts/cosyvoice3/path.sh` exports before running
+    anything.
+    """
+    return [str(RemotePaths.REPO_ROOT), str(RemotePaths.REPO_ROOT / "third_party" / "Matcha-TTS")]
+
+
+def cosyvoice_subprocess_env() -> dict[str, str]:
+    """os.environ plus the PYTHONPATH CosyVoice3's scripts need.
+
+    Setting cwd=REPO_ROOT is not sufficient and this is an easy trap: torch's
+    distributed launcher spawns the training script as a subprocess, where sys.path[0]
+    becomes the *script's* directory (cosyvoice/bin/) rather than the working
+    directory. Confirmed live as ModuleNotFoundError: No module named 'cosyvoice'.
+    The feature-extraction scripts appeared to work without this only because none of
+    them import the cosyvoice package.
+    """
+    env = os.environ.copy()
+    entries = cosyvoice_pythonpath()
+    if env.get("PYTHONPATH"):
+        entries.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(entries)
+    return env

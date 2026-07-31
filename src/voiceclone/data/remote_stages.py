@@ -17,7 +17,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-from voiceclone.config import RemotePaths
+from voiceclone.config import RemotePaths, cosyvoice_subprocess_env
 from voiceclone.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -37,7 +37,7 @@ def extract_speaker_embedding(speaker_prefix: str, split: str) -> None:
         "--onnx_path", str(onnx_path),
     ]
     logger.info("running: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT))
+    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
 
 
 def extract_speech_tokens(speaker_prefix: str, split: str) -> None:
@@ -54,7 +54,7 @@ def extract_speech_tokens(speaker_prefix: str, split: str) -> None:
         "--onnx_path", str(onnx_path),
     ]
     logger.info("running: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT))
+    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
 
 
 def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int = 1000) -> None:
@@ -75,7 +75,7 @@ def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int =
         "--des_dir", str(parquet_dir),
     ]
     logger.info("running: %s", " ".join(cmd))
-    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT))
+    subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
 
 
 def run_full_data_prep(speaker_prefix: str) -> None:
