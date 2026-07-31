@@ -42,27 +42,39 @@ model and vocoder at their pretrained weights. Both are run as separate experime
 
 ```
 src/voiceclone/
-    config.py            Runtime settings (speaker id, volume names, thresholds) via .env
+    config.py            Runtime settings (speaker id, RunPod/HF identifiers, thresholds) via .env
     cli.py                Command-line entry point: voiceclone <group> <command>
+    runpod_app.py           Pod lifecycle (create, wait, stop, remove) and SSH/rsync execution
+    orchestrate.py            Local driver: ensures a pod is ready, syncs this project onto it
     data/
         audio_preprocess.py   Voice-activity-based chunking, loudness normalization, format conversion
         transcribe.py           Transcription via local faster-whisper or the OpenAI API
         manifest.py               Training manifest format, train/cv/holdout split
         pipeline.py                 Local orchestration: raw recordings to manifests
+        hf_dataset.py                 Push/pull the prepared dataset via a private HF dataset repo
+        remote_stages.py               CosyVoice3 feature extraction, runs on the pod
     training/
         experiment.py            Experiment configuration and per-run hyperparameter overrides
-        train.py                   Fine-tuning, checkpoint averaging, and export
+        train.py                   Fine-tuning, checkpoint averaging, and export, runs on the pod
     evaluation/
         metrics.py                Word error rate, speaker similarity, predicted naturalness (UTMOS)
         report.py                   Aggregated comparison table across experiments
-        run_eval.py                  Holdout generation and scoring
+        run_eval.py                  Holdout generation and scoring, runs on the pod
     inference/
         engine.py                Inference wrapper around the fine-tuned checkpoint
-        serve.py                   Deployed inference service
+        serve.py                   Web demo (FastAPI + Gradio), runs on the pod
 tests/                          Unit tests for the components that do not require a GPU
 configs/experiments.yaml       The set of fine-tuning experiments to run
-scripts/record_checklist.md   Practical guide for recording a training dataset
+scripts/
+    record_checklist.md      Practical guide for recording a training dataset
+    pod_setup.sh                One-time environment setup run on the pod (idempotent)
 ```
+
+Compute runs on a rented [RunPod](https://runpod.io) GPU pod, not locally. One pod is used per work
+session: `voiceclone` commands that need the GPU create or reuse it, sync this project onto its
+Network Volume, and run the actual work over SSH. The prepared dataset moves between your machine and
+the pod through a private HuggingFace dataset repo, not a direct transfer, so the pod does not depend
+on your machine staying reachable during a long run.
 
 ## Data
 
@@ -98,8 +110,11 @@ pip install -e ".[data,eval,dev]"
 cp .env.example .env
 ```
 
-Fill in `.env` with your speaker id and any API keys needed for the transcription or compute backend
-in use. Secrets are read from the environment, never committed, and never printed by any command here.
+Fill in `.env`: your speaker id, a RunPod API key, a HuggingFace token (with write access, used for
+both the private dataset repo and reading the base checkpoint), and a RunPod Network Volume id.
+The Network Volume has to be created once by hand, through the RunPod web console (Storage -> New
+Network Volume), since RunPod's CLI has no command for it. Secrets are read from the environment,
+never committed, and never printed by any command here.
 
 ## Usage
 
@@ -107,20 +122,27 @@ in use. Secrets are read from the environment, never committed, and never printe
 # Chunk, transcribe, and split raw recordings into training manifests (local, no GPU required)
 voiceclone data prepare --raw-sessions-dir raw_sessions --dest data/<speaker>
 
-# Push the prepared dataset to remote storage and fetch the base checkpoint
+# Push the prepared dataset to a private HuggingFace dataset repo
 voiceclone data upload --dest data/<speaker>
-voiceclone pretrained download
 
-# Extract CosyVoice3 features (speaker embeddings, speech tokens, packaged training shards)
+# From here on, each command creates or reuses a pod, syncs this project onto it, and
+# runs the actual work over SSH
+voiceclone pretrained download
 voiceclone data extract
 
-# Run the configured fine-tuning experiments
 voiceclone train list
 voiceclone train run <experiment-name>
 voiceclone train sweep
 
-# Score every experiment against the holdout set
 voiceclone eval run <experiment-name> [<experiment-name> ...]
+
+voiceclone serve start --experiment <experiment-name>
+
+# Pod management
+voiceclone pod status
+voiceclone pod gpus     # currently available GPU types/pricing for your account
+voiceclone pod stop     # stop billing, keep the Network Volume
+voiceclone pod remove   # terminate the pod entirely
 ```
 
 ## Testing
@@ -138,7 +160,8 @@ conversion, and evaluation-report aggregation.
 ## Status
 
 This is an active project. The data pipeline, training orchestration, and evaluation harness are
-implemented and tested; a full fine-tuning run and its results are in progress.
+implemented and unit tested. Full pod-based execution has not yet been run end to end against live
+RunPod infrastructure; a full fine-tuning run and its results are in progress.
 
 ## License
 

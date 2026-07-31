@@ -1,93 +1,78 @@
-"""Deployed inference: a Modal class that keeps a fine-tuned checkpoint warm across
-requests, exposed both as a programmatic `.remote()` method and as a small web
-demo (Gradio, mounted on FastAPI) at a shareable Modal URL.
+"""Deployed inference: a FastAPI app (with a Gradio demo mounted on it) serving one
+fine-tuned checkpoint. Runs on the RunPod pod, bound to 0.0.0.0:8000, which the pod
+exposes publicly (see runpod_app.py's SERVE_PORT_LABEL and the pod's proxy URL,
+printed by `voiceclone serve start`).
 
-`experiment_name` is a `modal.parameter()` rather than hardcoded, so
-`InferenceService(experiment_name="cfm_only")` and `InferenceService(experiment_name="full_ft_default")`
-are independently deployable/callable — handy for the demo showing multiple
-experiment checkpoints side by side (see plan Section 8, "show both 'fine-tuned' and
-'fine-tuned + prompt' quality").
+Unlike the earlier Modal version, this is a plain long-running process, not a
+container lifecycle hook. `voiceclone remote serve` (see cli.py) runs this on the pod
+over SSH with the checkpoint already loaded once at startup, not per-request.
 """
+
+from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
-import modal
-
-from voiceclone.config import Paths, get_settings
+from voiceclone.config import RemotePaths
 from voiceclone.data.manifest import pick_enrollment_utterance
 from voiceclone.logging_utils import get_logger
-from voiceclone.modal_app import GPU_CHEAP_INFERENCE, STANDARD_VOLUMES, app, cosyvoice_image
 
 logger = get_logger(__name__)
 
-settings = get_settings()
 
+def build_app(speaker_prefix: str, experiment_name: str):
+    import gradio as gr
+    from fastapi import FastAPI, Response
+    from gradio.routes import mount_gradio_app
+    from pydantic import BaseModel
 
-@app.cls(
-    image=cosyvoice_image,
-    volumes=STANDARD_VOLUMES,
-    gpu=GPU_CHEAP_INFERENCE,
-    scaledown_window=300,
-)
-class InferenceService:
-    experiment_name: str = modal.parameter(default="full_ft_default")
-    speaker_prefix: str = modal.parameter(default=settings.speaker_id)
+    from voiceclone.inference.engine import DEFAULT_SPK_ID, VoiceCloneEngine
 
-    @modal.enter()
-    def load(self) -> None:
-        from voiceclone.inference.engine import DEFAULT_SPK_ID, VoiceCloneEngine
+    checkpoint_dir = RemotePaths.CHECKPOINT_DIR / speaker_prefix / experiment_name / "inference_ready"
+    logger.info("loading checkpoint %s", checkpoint_dir)
+    engine = VoiceCloneEngine(str(checkpoint_dir))
 
-        checkpoint_dir = Paths.CHECKPOINT_DIR / self.speaker_prefix / self.experiment_name / "inference_ready"
-        logger.info("loading checkpoint %s", checkpoint_dir)
-        self.engine = VoiceCloneEngine(str(checkpoint_dir))
+    train_dir = RemotePaths.DATASET_DIR / speaker_prefix / "train"
+    _utt, text, wav_path = pick_enrollment_utterance(train_dir)
+    engine.enroll(text, wav_path, spk_id=DEFAULT_SPK_ID)
 
-        train_dir = Paths.DATASET_DIR / self.speaker_prefix / "train"
-        _utt, text, wav_path = pick_enrollment_utterance(train_dir)
-        self.engine.enroll(text, wav_path, spk_id=DEFAULT_SPK_ID)
-
-    @modal.method()
-    def synthesize(self, text: str, speed: float = 1.0) -> bytes:
-        from voiceclone.inference.engine import DEFAULT_SPK_ID
-
+    def synthesize(text: str, speed: float = 1.0) -> bytes:
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "out.wav"
-            self.engine.synthesize_to_file(text, out_path, spk_id=DEFAULT_SPK_ID, speed=speed)
+            engine.synthesize_to_file(text, out_path, spk_id=DEFAULT_SPK_ID, speed=speed)
             return out_path.read_bytes()
 
-    @modal.asgi_app()
-    def web(self):
-        import gradio as gr
-        from fastapi import FastAPI, Response
-        from gradio.routes import mount_gradio_app
-        from pydantic import BaseModel
+    fastapi_app = FastAPI(title="voiceclone: CosyVoice3 personal voice demo")
 
-        fastapi_app = FastAPI(title="voiceclone: CosyVoice3 personal voice demo")
+    class SynthesizeRequest(BaseModel):
+        text: str
+        speed: float = 1.0
 
-        class SynthesizeRequest(BaseModel):
-            text: str
-            speed: float = 1.0
+    @fastapi_app.post("/synthesize")
+    def synthesize_endpoint(req: SynthesizeRequest) -> Response:
+        return Response(content=synthesize(req.text, req.speed), media_type="audio/wav")
 
-        @fastapi_app.post("/synthesize")
-        def synthesize_endpoint(req: SynthesizeRequest) -> Response:
-            wav_bytes = self.synthesize.local(req.text, req.speed)
-            return Response(content=wav_bytes, media_type="audio/wav")
+    def gradio_synthesize(text: str, speed: float) -> str:
+        tmp_path = "/tmp/voiceclone_demo_output.wav"
+        with open(tmp_path, "wb") as f:
+            f.write(synthesize(text, speed))
+        return tmp_path
 
-        def gradio_synthesize(text: str, speed: float) -> str:
-            wav_bytes = self.synthesize.local(text, speed)
-            tmp_path = "/tmp/voiceclone_demo_output.wav"
-            with open(tmp_path, "wb") as f:
-                f.write(wav_bytes)
-            return tmp_path
+    demo = gr.Interface(
+        fn=gradio_synthesize,
+        inputs=[
+            gr.Textbox(label="Text to speak", lines=3, placeholder="Type something for the cloned voice to say..."),
+            gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed"),
+        ],
+        outputs=gr.Audio(label="Generated speech", type="filepath"),
+        title="Personal voice clone (CosyVoice3, fine-tuned)",
+        description=f"Experiment: {experiment_name}",
+    )
+    return mount_gradio_app(fastapi_app, demo, path="/")
 
-        demo = gr.Interface(
-            fn=gradio_synthesize,
-            inputs=[
-                gr.Textbox(label="Text to speak", lines=3, placeholder="Type something for the cloned voice to say..."),
-                gr.Slider(0.5, 2.0, value=1.0, step=0.05, label="Speed"),
-            ],
-            outputs=gr.Audio(label="Generated speech", type="filepath"),
-            title="Personal voice clone (CosyVoice3, fine-tuned)",
-            description=f"Experiment: {self.experiment_name}",
-        )
-        return mount_gradio_app(fastapi_app, demo, path="/")
+
+def run_server(speaker_prefix: str, experiment_name: str, port: int = 8000) -> None:
+    import uvicorn
+
+    app = build_app(speaker_prefix, experiment_name)
+    uvicorn.run(app, host="0.0.0.0", port=port)  # noqa: S104 -- intentional: the pod's edge/proxy is what actually gates public access, not this bind

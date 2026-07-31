@@ -1,8 +1,8 @@
 """Central configuration, loaded from environment / .env via pydantic-settings.
 
-Every module that needs a path, volume name, or hyperparameter default reads it from
+Every module that needs a path, identifier, or hyperparameter default reads it from
 here rather than hardcoding it, so the whole pipeline can be retargeted (new speaker,
-new base checkpoint, new Modal volume names) by editing one .env file.
+new base checkpoint, new RunPod resources) by editing one .env file.
 """
 
 from __future__ import annotations
@@ -19,10 +19,17 @@ class Settings(BaseSettings):
     speaker_id: str = Field(default="speaker", description="utt/spk id prefix used throughout the data pipeline")
     base_model_id: str = Field(default="FunAudioLLM/Fun-CosyVoice3-0.5B-2512")
 
-    dataset_volume: str = "voiceclone-dataset"
-    checkpoint_volume: str = "voiceclone-checkpoints"
-    pretrained_volume: str = "voiceclone-pretrained"
-    hf_cache_volume: str = "voiceclone-hf-cache"
+    # Private HuggingFace dataset repo the prepared training data is pushed to and
+    # pulled from. If left blank, defaults to "{hf_username}/voiceclone-{speaker_id}-dataset"
+    # at upload time (see data/hf_dataset.py), using whoami() against HF_TOKEN.
+    hf_dataset_repo_id: str = ""
+
+    # A RunPod Network Volume created once via the RunPod web console (runpodctl has
+    # no volume-creation command) and reused across pods/sessions. Required before any
+    # `voiceclone pod ...` / `voiceclone train ...` command that touches RunPod.
+    runpod_network_volume_id: str = ""
+    runpod_gpu_type: str = "NVIDIA A100 80GB PCIe"  # verify against `runpodctl get cloud` for your account/region
+    runpod_pod_name: str = "voiceclone"
 
     # CosyVoice3's speech-token extractor hard-caps input length; anything longer is
     # silently skipped by the upstream script rather than erroring, so we enforce the
@@ -39,22 +46,22 @@ class Settings(BaseSettings):
     cv_fraction: float = 0.05
     eval_holdout_fraction: float = 0.05
 
-    modal_app_name: str = "voiceclone-cosyvoice3"
-
 
 def get_settings() -> Settings:
     return Settings()
 
 
-class Paths:
-    """Container-side paths used consistently across every Modal function.
+class RemotePaths:
+    """Paths as they exist on the RunPod pod's Network Volume, mounted at /workspace.
 
-    Kept as plain class attributes (not env-configurable) because these are mount
-    points *inside* the Modal container image, not something a user should retarget.
+    Kept as plain class attributes (not env-configurable) since these are fixed mount
+    points inside the remote environment, not something a user should retarget.
     """
 
-    REPO_ROOT = Path("/root/CosyVoice")
-    PRETRAINED_DIR = Path("/pretrained")
-    DATASET_DIR = Path("/dataset")
-    CHECKPOINT_DIR = Path("/checkpoints")
-    HF_CACHE_DIR = Path("/hf-cache")
+    WORKSPACE = Path("/workspace")
+    REPO_ROOT = WORKSPACE / "CosyVoice"
+    VENV = WORKSPACE / "venv"
+    PRETRAINED_DIR = WORKSPACE / "pretrained"
+    DATASET_DIR = WORKSPACE / "dataset"
+    CHECKPOINT_DIR = WORKSPACE / "checkpoints"
+    HF_CACHE_DIR = WORKSPACE / "hf-cache"
