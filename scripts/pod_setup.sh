@@ -33,14 +33,25 @@ else
 fi
 
 if [ ! -f "$WORKSPACE/.setup_complete" ]; then
-  echo "[pod_setup] installing Python dependencies"
-  pip install -q --upgrade pip
-  pip install -q torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
-  pip install -q -r "$REPO_ROOT/requirements.txt" || true  # some deps in this file are platform-conditional; non-fatal
-  pip install -q onnxruntime-gpu==1.18.0
+  # No -q anywhere in this block: normal pip output (download progress, "Collecting X",
+  # wheel builds) stays visible. Deliberate -- this block can run 10-25 min, dominated
+  # by torch/tensorrt downloads and deepspeed compiling CUDA extensions from source,
+  # and a silent multi-minute gap is indistinguishable from a hang without it.
+  echo "[pod_setup] (1/5) upgrading pip"
+  pip install --upgrade pip
 
-  echo "[pod_setup] installing voiceclone package"
-  pip install -q -e "$WORKSPACE/voiceclone-project"
+  echo "[pod_setup] (2/5) installing torch + torchaudio (cu121) -- large download, several minutes"
+  pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
+
+  echo "[pod_setup] (3/5) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
+  echo "[pod_setup]     compiles CUDA extensions from source and can take 5-15 min on its own"
+  pip install -r "$REPO_ROOT/requirements.txt" || true  # some deps in this file are platform-conditional; non-fatal
+
+  echo "[pod_setup] (4/5) installing onnxruntime-gpu"
+  pip install onnxruntime-gpu==1.18.0
+
+  echo "[pod_setup] (5/5) installing voiceclone package"
+  pip install -e "$WORKSPACE/voiceclone-project"
 
   touch "$WORKSPACE/.setup_complete"
   echo "[pod_setup] setup complete"

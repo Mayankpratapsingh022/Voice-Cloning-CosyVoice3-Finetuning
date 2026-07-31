@@ -55,12 +55,16 @@ def ensure_authenticated() -> None:
     """One-time `runpodctl config --apiKey ...`, reading the key from the environment
     so it never appears in a command a shell history/log could capture as an argument
     list elsewhere in the codebase, this is the single place the raw key touches a
-    subprocess argv.
+    subprocess argv. Does not use check=True: subprocess.CalledProcessError's default
+    repr includes the full argv (the key included), so failure is handled explicitly
+    with a redacted message instead.
     """
-    subprocess.run(
+    result = subprocess.run(
         ["runpodctl", "config", "--apiKey", _api_key()],
-        check=True, capture_output=True, text=True,
+        capture_output=True, text=True,
     )
+    if result.returncode != 0:
+        raise RuntimeError(f"runpodctl authentication failed (command redacted): {result.stderr.strip()}")
     logger.info("runpodctl authenticated")
 
 
@@ -89,9 +93,16 @@ def create_pod(
     ports: str = f"{SERVE_PORT_LABEL},{DEFAULT_SSH_PORT_LABEL}",
     env: dict[str, str] | None = None,
     cost_ceiling: float | None = None,
+    cloud: str | None = None,
 ) -> str:
     """Start a pod, return its id. Does not wait for it to be running (see
     `wait_for_running`), pod boot + volume attach typically takes a minute or two.
+
+    `cloud` is `"secure"`, `"community"`, or `None` (no constraint, either pool,
+    maximizes the odds of finding stock, which matters when a GPU type is showing
+    "Low" stock for the volume's datacenter). Only force a specific pool if you have
+    a reason to (secure cloud for a long unattended training run you don't want
+    preempted, say) at the cost of a smaller pool to draw from.
     """
     cmd = [
         "runpodctl", "create", "pod",
@@ -101,15 +112,25 @@ def create_pod(
         "--networkVolumeId", network_volume_id,
         "--containerDiskSize", str(container_disk_gb),
         "--ports", ports,
-        "--secureCloud",
     ]
+    if cloud == "secure":
+        cmd.append("--secureCloud")
+    elif cloud == "community":
+        cmd.append("--communityCloud")
     if cost_ceiling is not None:
         cmd += ["--cost", str(cost_ceiling)]
+
+    # env vars (e.g. HF_TOKEN) are appended separately and never included in any
+    # exception raised below -- subprocess.CalledProcessError's default repr includes
+    # the full argv, which would otherwise leak them into logs/tracebacks.
+    full_cmd = list(cmd)
     for k, v in (env or {}).items():
-        cmd += ["--env", f"{k}={v}"]
+        full_cmd += ["--env", f"{k}={v}"]
 
     logger.info("creating pod '%s' (%s)", name, gpu_type)
-    result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+    result = subprocess.run(full_cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"pod creation failed (command redacted): {result.stderr.strip()}")
     pod_id = _extract_pod_id(result.stdout)
     logger.info("pod created: %s", pod_id)
     return pod_id

@@ -28,7 +28,11 @@ class Settings(BaseSettings):
     # no volume-creation command) and reused across pods/sessions. Required before any
     # `voiceclone pod ...` / `voiceclone train ...` command that touches RunPod.
     runpod_network_volume_id: str = ""
-    runpod_gpu_type: str = "NVIDIA A100 80GB PCIe"  # verify against `runpodctl get cloud` for your account/region
+    # 24GB comfortably covers CosyVoice3's 0.5B params (trained one component at a
+    # time, under AMP), and this is the best price/availability tradeoff of what's on
+    # RunPod's "latest generation" list for this account/region at time of writing.
+    # Re-verify with `voiceclone pod gpus` before a real run, pricing/availability shift.
+    runpod_gpu_type: str = "NVIDIA GeForce RTX 4090"
     runpod_pod_name: str = "voiceclone"
 
     # CosyVoice3's speech-token extractor hard-caps input length; anything longer is
