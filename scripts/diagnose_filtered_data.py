@@ -71,6 +71,19 @@ def main() -> None:
     for shard in shards:
         df = pd.read_parquet(shard)
         print(f"{shard.name}: {len(df)} rows, columns={list(df.columns)}")
+
+        # A speech_token column is expected to be ABSENT: run_full_data_prep omits
+        # offline token extraction so CosyVoice3 tokenizes online, which is the only
+        # way the tokens stay aligned with the padded mel (see remote_stages.py).
+        # Its presence means stale data that will break flow training.
+        has_offline_tokens = "speech_token" in df.columns
+        if has_offline_tokens:
+            print(
+                "  WARNING: this shard carries offline speech_token. flow training will use it "
+                "instead of extracting online, and will likely fail with a tensor size mismatch. "
+                "Re-run `voiceclone remote extract-data` to regenerate without it."
+            )
+
         for _, row in df.iterrows():
             total += 1
             utt = row["utt"]
@@ -79,8 +92,7 @@ def main() -> None:
             speech = speech.mean(dim=0, keepdim=True)
             num_frames = speech.size(1) / sample_rate * 100  # filter() counts 10ms frames
 
-            speech_token = row.get("speech_token")
-            n_speech_token = 0 if speech_token is None else len(speech_token)
+            n_speech_token = len(row["speech_token"]) if has_offline_tokens else -1
             # text is tokenized later in the real pipeline; character count is a rough
             # proxy, enough to tell "plausible" from "wildly over the limit"
             n_text_chars = len(str(row["text"]))
@@ -90,7 +102,7 @@ def main() -> None:
                 reason = f"too short (<{DEFAULTS['min_length']} frames / 1.0s)"
             elif num_frames > DEFAULTS["max_length"]:
                 reason = f"too long (>{DEFAULTS['max_length']} frames / 60s)"
-            elif n_speech_token == 0:
+            elif has_offline_tokens and n_speech_token == 0:
                 reason = "empty speech_token (extractor skips audio >30s)"
 
             if reason:

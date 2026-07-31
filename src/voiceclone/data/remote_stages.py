@@ -44,6 +44,11 @@ def extract_speaker_embedding(speaker_prefix: str, split: str) -> None:
 def extract_speech_tokens(speaker_prefix: str, split: str) -> None:
     """Discrete speech-token extraction via CosyVoice3's speech_tokenizer_v3.onnx.
 
+    NOT called by run_full_data_prep, deliberately. Kept because it is a faithful port
+    of the upstream recipe stage and may be useful for inspection, but packing its
+    output into the parquet actively breaks `flow` training. See
+    run_full_data_prep's docstring for why.
+
     Upstream hardcodes CUDAExecutionProvider (tools/extract_speech_token.py) so this
     needs the pod's GPU.
     """
@@ -68,6 +73,17 @@ def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int =
     # progress bar runs to 240/240 "successfully" and only the main process's final
     # data.list write surfaces the error.
     parquet_dir.mkdir(parents=True, exist_ok=True)
+
+    # make_parquet_list.py includes a `speech_token` column iff utt2speech_token.pt
+    # exists in src_dir. A leftover file from an earlier run would silently reintroduce
+    # the offline tokens (and the flow-training size mismatch) even though
+    # run_full_data_prep no longer generates them, so drop it explicitly rather than
+    # depending on the directory being clean.
+    stale_tokens = manifest_dir / "utt2speech_token.pt"
+    if stale_tokens.exists():
+        logger.warning("removing stale %s so tokens are extracted online during training", stale_tokens)
+        stale_tokens.unlink()
+
     cmd = [
         sys.executable, str(RemotePaths.REPO_ROOT / "tools" / "make_parquet_list.py"),
         "--num_utts_per_parquet", str(num_utts_per_parquet),
@@ -107,10 +123,34 @@ def _verify_parquet_shards(parquet_dir: Path) -> None:
 
 
 def run_full_data_prep(speaker_prefix: str) -> None:
-    """Chain embedding -> speech-token -> parquet extraction for train + cv."""
+    """Chain speaker-embedding extraction -> parquet packaging for train + cv.
+
+    Speech-token extraction is deliberately NOT part of this chain, even though
+    upstream's run.sh has it as a stage. Packing offline speech tokens into the
+    parquet breaks `flow` training with a tensor size mismatch, because:
+
+      - compute_fbank pads audio UP to a multiple of 960 samples before computing the
+        mel (`num_frames: 960` in cosyvoice3.yaml), so mel length is always 2x the
+        implied 25Hz token count.
+      - extract_speech_token.py runs on the ORIGINAL unpadded audio, so for any
+        utterance whose length is not already a multiple of 960 samples it yields one
+        token fewer.
+      - flow.forward() only extracts tokens online when `speech_token` is absent from
+        the batch; if we supply it, it uses ours, and the flow decoder gets mu of
+        length 2*(k-1) against a mel of length 2*k. Observed as:
+        "Expected size 956 but got size 954".
+
+    Upstream says as much in run.sh, which I ported past on the first pass:
+    "NOTE embedding/token extraction is not necessary now as we support online feature
+    extraction, but training speed will be influenced". Omitting the tokens takes the
+    online path, which is aligned by construction. The cost is slower training steps
+    (ONNX tokenization per batch); correctness first, and this dataset is small.
+
+    Speaker embeddings are kept offline: they are one vector per utterance with no
+    time alignment, so they carry no such risk and save real work per step.
+    """
     for split in TRAIN_SPLITS:
         extract_speaker_embedding(speaker_prefix, split)
-        extract_speech_tokens(speaker_prefix, split)
         package_parquet(speaker_prefix, split)
     logger.info("data prep complete for splits=%s", TRAIN_SPLITS)
 
