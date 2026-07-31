@@ -1,0 +1,76 @@
+[project]
+name = "voiceclone"
+version = "0.1.0"
+description = "Full-parameter fine-tuning of CosyVoice3 for personal voice cloning, orchestrated on Modal"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+
+dependencies = [
+    "modal>=0.65",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.2",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+    "numpy>=1.26,<2.0",
+    "scipy>=1.11",
+    "soundfile>=0.12",
+    "pyloudnorm>=0.1.1",
+    "webrtcvad>=2.0.10",
+    # webrtcvad's own module does `import pkg_resources` at import time; setuptools>=81
+    # dropped pkg_resources entirely, which breaks it. Pin until upstream webrtcvad
+    # fixes this (tracked as a known, not-our-bug issue in that package).
+    "setuptools<81",
+    "pandas>=2.2",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+# Heavy, GPU/ML-framework-adjacent deps needed for local dataset prep and evaluation.
+# Kept separate from the base install so `pip install voiceclone` for pure orchestration stays light.
+data = [
+    "faster-whisper>=1.0",
+    "openai>=1.30",
+]
+eval = [
+    "faster-whisper>=1.0",
+    "jiwer>=3.0",
+    "torch>=2.3,<2.4",
+    "torchaudio>=2.3,<2.4",
+    "transformers>=4.51,<4.52",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+voiceclone = "voiceclone.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/voiceclone"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# B008: Typer/FastAPI's idiomatic `param: X = typer.Option(...)` / `= Depends(...)`
+# pattern is exactly what this rule flags as a footgun in general code — false
+# positive for this codebase's CLI/web-endpoint modules.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+
+# Env / secrets
+.env
+*.token
+
+# Local tooling (Claude Code session state, not part of the project)
+.claude/
+
+# Internal planning notes, not part of the public repo
+PLAN.md
+
+# Local data staging: recordings, transcripts, chunked audio, manifests.
+# None of this belongs in git, whether it is your own voice or anyone else's.
+# Anchored to the repo root (leading slash) so this does not also match the
+# src/voiceclone/data/ source package.
+/data/
+raw_sessions/
+*.wav
+*.flac
+*.mp3
+*.m4a
+*.ogg
+!asset/**/*.wav
+
+# Model artifacts
+pretrained_models/
+exp/
+*.pt
+*.onnx
+*.plan
+
+# Cloned upstream repo (pulled at build time, not vendored)
+third_party/CosyVoice/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

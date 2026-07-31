@@ -1,0 +1,48 @@
+# The fine-tuning sweep the CLI reads by default (`voiceclone train list/run/sweep`).
+# Loaded by training/experiment.py::load_experiments — plain YAML, not HyperPyYAML,
+# so no `!new:`/`!ref` tags here. Edit freely; this mirrors
+# training/experiment.py::DEFAULT_EXPERIMENTS, which is only used as a fallback if
+# this file goes missing.
+#
+# `components` must be a subset of [llm, flow, hifigan] (see cosyvoice/bin/train.py's
+# --model argument). Any component left out of an experiment is carried through from
+# the pretrained checkpoint unchanged rather than fine-tuned.
+experiments:
+  - name: pilot
+    components: [llm, flow, hifigan]
+    learning_rate: null
+    gan_learning_rate: null
+    max_epoch: 5
+    notes: >-
+      Pipeline validation only, NOT a quality candidate — run this first against
+      ~20-30min of pilot recordings (PLAN.md Section 5) to confirm data prep -> train
+      -> eval -> inference works end to end before recording the full dataset or
+      running the real sweep below.
+
+  - name: full_ft_default
+    components: [llm, flow, hifigan]
+    learning_rate: null
+    gan_learning_rate: null
+    max_epoch: 30
+    notes: >-
+      Full fine-tune of llm+flow+hifigan at the recipe's default SFT lr (1e-5).
+      Primary candidate.
+
+  - name: full_ft_higher_lr
+    components: [llm, flow, hifigan]
+    learning_rate: 3.0e-5
+    gan_learning_rate: null
+    max_epoch: 20
+    notes: >-
+      Faster adaptation, higher overfitting risk — compare against full_ft_default
+      via cv loss/eval, not by assumption.
+
+  - name: cfm_only
+    components: [flow]
+    learning_rate: null
+    gan_learning_rate: null
+    max_epoch: 30
+    notes: >-
+      Timbre/acoustics-targeted fine-tune; llm and hifigan stay at pretrained
+      weights. The plan's comparison point for "full fine-tune vs targeted module
+      fine-tune."
