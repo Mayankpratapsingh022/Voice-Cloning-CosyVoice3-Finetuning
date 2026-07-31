@@ -37,20 +37,29 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
   # wheel builds) stays visible. Deliberate -- this block can run 10-25 min, dominated
   # by torch/tensorrt downloads and deepspeed compiling CUDA extensions from source,
   # and a silent multi-minute gap is indistinguishable from a hang without it.
-  echo "[pod_setup] (1/5) upgrading pip"
+  echo "[pod_setup] (1/6) upgrading pip"
   pip install --upgrade pip
 
-  echo "[pod_setup] (2/5) installing torch + torchaudio (cu121) -- large download, several minutes"
+  # setuptools>=81 dropped the pkg_resources module entirely. openai-whisper==20231117
+  # (a CosyVoice3 dependency) does `import pkg_resources` in setup.py, which breaks its
+  # build under a modern venv's bundled setuptools. Same root cause as the webrtcvad
+  # pin in this project's own pyproject.toml -- pinned here too, and *before* installing
+  # anything else, since step 3 below needs it and pyproject.toml's own pin (step 6)
+  # applies too late to help CosyVoice3's own requirements.txt.
+  echo "[pod_setup] (2/6) pinning setuptools<81 (openai-whisper's setup.py needs pkg_resources)"
+  pip install "setuptools<81"
+
+  echo "[pod_setup] (3/6) installing torch + torchaudio (cu121) -- large download, several minutes"
   pip install torch==2.3.1 torchaudio==2.3.1 --index-url https://download.pytorch.org/whl/cu121
 
-  echo "[pod_setup] (3/5) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
+  echo "[pod_setup] (4/6) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
   echo "[pod_setup]     compiles CUDA extensions from source and can take 5-15 min on its own"
   pip install -r "$REPO_ROOT/requirements.txt" || true  # some deps in this file are platform-conditional; non-fatal
 
-  echo "[pod_setup] (4/5) installing onnxruntime-gpu"
+  echo "[pod_setup] (5/6) installing onnxruntime-gpu"
   pip install onnxruntime-gpu==1.18.0
 
-  echo "[pod_setup] (5/5) installing voiceclone package"
+  echo "[pod_setup] (6/6) installing voiceclone package"
   pip install -e "$WORKSPACE/voiceclone-project"
 
   touch "$WORKSPACE/.setup_complete"
