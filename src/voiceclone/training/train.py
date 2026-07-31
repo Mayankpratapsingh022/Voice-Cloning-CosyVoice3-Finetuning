@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 from voiceclone.config import RemotePaths
@@ -85,8 +86,15 @@ def train_component(speaker_prefix: str, experiment_name: str, component: str, c
     pretrained_checkpoint = RemotePaths.PRETRAINED_DIR / COMPONENT_CHECKPOINT_NAME[component]
     config_path = RemotePaths.CHECKPOINT_DIR / config_yaml_relpath
 
+    # `sys.executable -m torch.distributed.run` rather than a bare `torchrun`: the base
+    # CUDA image ships its own system-wide torch (Python 3.11, /usr/local/lib/python3.11),
+    # and a bare `torchrun` can resolve to that instead of the venv's, silently running
+    # training under an interpreter that has none of the packages we installed.
+    # Confirmed live: it failed with ModuleNotFoundError: No module named 'deepspeed'
+    # from inside /usr/local/lib/python3.11/dist-packages. Going through sys.executable
+    # pins this to the same interpreter this process is running under, i.e. the venv's.
     cmd = [
-        "torchrun",
+        sys.executable, "-m", "torch.distributed.run",
         "--nnodes=1",
         "--nproc_per_node=1",
         "--rdzv_id=voiceclone",
@@ -124,7 +132,7 @@ def average_and_export_component(speaker_prefix: str, experiment_name: str, comp
     dst = exported_dir / COMPONENT_EXPORT_NAME[component]
 
     cmd = [
-        "python", str(RemotePaths.REPO_ROOT / "cosyvoice" / "bin" / "average_model.py"),
+        sys.executable, str(RemotePaths.REPO_ROOT / "cosyvoice" / "bin" / "average_model.py"),
         "--dst_model", str(dst),
         "--src_path", str(model_dir),
         "--num", str(AVERAGE_NUM),

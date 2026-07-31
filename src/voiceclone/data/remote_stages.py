@@ -15,6 +15,7 @@ in data/orchestrate.py.
 from __future__ import annotations
 
 import subprocess
+import sys
 
 from voiceclone.config import RemotePaths
 from voiceclone.logging_utils import get_logger
@@ -31,7 +32,7 @@ def extract_speaker_embedding(speaker_prefix: str, split: str) -> None:
     manifest_dir = RemotePaths.DATASET_DIR / speaker_prefix / split
     onnx_path = RemotePaths.PRETRAINED_DIR / "campplus.onnx"
     cmd = [
-        "python", str(RemotePaths.REPO_ROOT / "tools" / "extract_embedding.py"),
+        sys.executable, str(RemotePaths.REPO_ROOT / "tools" / "extract_embedding.py"),
         "--dir", str(manifest_dir),
         "--onnx_path", str(onnx_path),
     ]
@@ -48,7 +49,7 @@ def extract_speech_tokens(speaker_prefix: str, split: str) -> None:
     manifest_dir = RemotePaths.DATASET_DIR / speaker_prefix / split
     onnx_path = RemotePaths.PRETRAINED_DIR / "speech_tokenizer_v3.onnx"
     cmd = [
-        "python", str(RemotePaths.REPO_ROOT / "tools" / "extract_speech_token.py"),
+        sys.executable, str(RemotePaths.REPO_ROOT / "tools" / "extract_speech_token.py"),
         "--dir", str(manifest_dir),
         "--onnx_path", str(onnx_path),
     ]
@@ -67,7 +68,7 @@ def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int =
     # data.list write surfaces the error.
     parquet_dir.mkdir(parents=True, exist_ok=True)
     cmd = [
-        "python", str(RemotePaths.REPO_ROOT / "tools" / "make_parquet_list.py"),
+        sys.executable, str(RemotePaths.REPO_ROOT / "tools" / "make_parquet_list.py"),
         "--num_utts_per_parquet", str(num_utts_per_parquet),
         "--num_processes", "4",
         "--src_dir", str(manifest_dir),
