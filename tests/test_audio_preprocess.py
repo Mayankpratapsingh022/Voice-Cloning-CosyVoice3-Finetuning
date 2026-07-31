@@ -21,9 +21,31 @@ from voiceclone.data.audio_preprocess import (
     convert_to_wav,
     normalize_loudness,
     probe_duration_s,
+    sanitize_id,
 )
 
 requires_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not installed")
+
+
+def test_sanitize_id_strips_whitespace_and_punctuation() -> None:
+    # the exact real-world case that broke extract_embedding.py: CosyVoice3's own
+    # manifest readers use a plain `line.split()`, so any whitespace in an id or path
+    # silently truncates it rather than erroring
+    raw = "Implementing DeepSeek LLM from Scratch in Pytorch (Transformer + RVQ + CTC) [L-E3WJvztZ0]"
+    result = sanitize_id(raw)
+    assert " " not in result
+    assert "(" not in result and ")" not in result
+    assert "[" not in result and "]" not in result
+    assert "L-E3WJvztZ0" in result  # the hyphen survives -- it's an allowed character
+
+
+def test_sanitize_id_collapses_repeats_and_strips_edges() -> None:
+    assert sanitize_id("  hello   world  ") == "hello_world"
+    assert sanitize_id("a___b") == "a_b"
+
+
+def test_sanitize_id_preserves_already_safe_strings() -> None:
+    assert sanitize_id("mayank_session1_00042") == "mayank_session1_00042"
 
 
 def test_merge_close_segments_bridges_short_gaps() -> None:

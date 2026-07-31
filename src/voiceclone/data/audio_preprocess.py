@@ -10,6 +10,7 @@ mid-word.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -34,6 +35,24 @@ TARGET_LUFS = -23.0
 # format support varies by platform/libsndfile version, so we don't rely on it for
 # compressed formats; ffmpeg is the one dependency guaranteed to handle all of these.
 SUPPORTED_SESSION_EXTENSIONS = (".wav", ".mp3", ".m4a", ".flac", ".ogg")
+
+
+def sanitize_id(text: str) -> str:
+    """Make a string safe to use as (part of) a CosyVoice3 utterance id.
+
+    wav.scp/text/utt2spk/spk2utt are whitespace-delimited, and critically,
+    CosyVoice3's own tools/extract_embedding.py and extract_speech_token.py parse
+    them with a plain `line.split()` (no maxsplit) -- so any whitespace inside an
+    id or path silently truncates it rather than erroring loudly. This showed up in
+    practice: chunk filenames derived directly from source video titles (e.g.
+    "Implementing DeepSeek LLM from Scratch...") broke embedding extraction with a
+    "file not found" pointing at a path truncated at the first space.
+
+    Keeps only alphanumerics, underscore, and hyphen; collapses everything else
+    (spaces, brackets, unicode punctuation) to a single underscore.
+    """
+    slug = re.sub(r"[^A-Za-z0-9_-]+", "_", text)
+    return re.sub(r"_+", "_", slug).strip("_")
 
 
 def convert_to_wav(src_path: Path, dest_path: Path, sample_rate: int) -> Path:

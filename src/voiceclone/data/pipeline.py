@@ -1,8 +1,8 @@
 """Local orchestration: raw recording sessions -> chunked, transcribed, split manifests.
 
-Runs entirely on your machine, no GPU/Modal needed — matches the plan's rule that only
-the CosyVoice-repo-dependent stages (speech-token extraction, training) pay for rented
-compute. Output of this module is what gets uploaded to the Modal dataset Volume.
+Runs entirely on your machine, no GPU needed -- matches the plan's rule that only the
+CosyVoice-repo-dependent stages (speech-token extraction, training) pay for rented
+compute. Output of this module is what gets uploaded to the private HF dataset repo.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from voiceclone.data.audio_preprocess import (
     chunk_recording,
     convert_to_wav,
     probe_duration_s,
+    sanitize_id,
 )
 from voiceclone.data.manifest import prepare_speaker_manifests
 from voiceclone.data.transcribe import transcribe_batch, verify_against_script
@@ -121,7 +122,10 @@ def run_local_data_prep(
     utt_to_text: dict[str, str] = {}
 
     for session_path in session_paths:
-        session_prefix = f"{settings.speaker_id}_{session_path.stem}"
+        # sanitize_id: session_path.stem is often a source video/recording title,
+        # which routinely contains spaces/brackets/punctuation that break CosyVoice3's
+        # whitespace-delimited manifest parsing (see sanitize_id's docstring).
+        session_prefix = f"{settings.speaker_id}_{sanitize_id(session_path.stem)}"
 
         if session_path.suffix.lower() != ".wav":
             wav_path = conversion_staging / f"{session_path.stem}.wav"
