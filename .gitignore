@@ -18,8 +18,9 @@ build/
 # Local tooling (Claude Code session state, not part of the project)
 .claude/
 
-# Internal planning notes, not part of the public repo
+# Internal planning and working notes, not part of the public repo
 PLAN.md
+WORKLOG.md
 
 # Local data staging: recordings, transcripts, chunked audio, manifests.
 # None of this belongs in git, whether it is your own voice or anyone else's.
