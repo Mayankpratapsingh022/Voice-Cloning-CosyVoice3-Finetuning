@@ -43,9 +43,25 @@ def main() -> None:
     args = parser.parse_args()
 
     parquet_dir = Path(args.dataset_root) / args.speaker / args.split / "parquet"
-    shards = sorted(parquet_dir.glob("*.tar"))
+    # Read data.list rather than globbing: it is what training itself consumes, so a
+    # mismatch between what it references and what exists on disk is exactly the
+    # failure worth reporting (see _verify_parquet_shards in data/remote_stages.py).
+    data_list = parquet_dir / "data.list"
+    if not data_list.exists():
+        raise SystemExit(f"no data.list under {parquet_dir}; parquet packaging never completed")
+
+    referenced = [Path(line.strip()) for line in data_list.read_text().splitlines() if line.strip()]
+    shards = [p for p in referenced if p.exists()]
+    missing = [p for p in referenced if not p.exists()]
+    if missing:
+        print(f"WARNING: {len(missing)}/{len(referenced)} shards in data.list do not exist on disk")
+        for p in missing[:5]:
+            print(f"  missing: {p}")
     if not shards:
-        raise SystemExit(f"no parquet shards under {parquet_dir}")
+        raise SystemExit(
+            f"none of the {len(referenced)} shards referenced by {data_list} exist. Training would "
+            f"silently load zero batches. Re-run `voiceclone remote extract-data`."
+        )
 
     reasons: Counter[str] = Counter()
     kept = 0

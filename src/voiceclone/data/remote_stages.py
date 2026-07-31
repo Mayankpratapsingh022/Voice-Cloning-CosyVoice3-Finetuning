@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from pathlib import Path
 
 from voiceclone.config import RemotePaths, cosyvoice_subprocess_env
 from voiceclone.logging_utils import get_logger
@@ -76,6 +77,33 @@ def package_parquet(speaker_prefix: str, split: str, num_utts_per_parquet: int =
     ]
     logger.info("running: %s", " ".join(cmd))
     subprocess.run(cmd, check=True, cwd=str(RemotePaths.REPO_ROOT), env=cosyvoice_subprocess_env())
+    _verify_parquet_shards(parquet_dir)
+
+
+def _verify_parquet_shards(parquet_dir: Path) -> None:
+    """Fail loudly if data.list references shards that were never actually written.
+
+    make_parquet_list.py exits 0 in this case: data.list is written by the main
+    process and always succeeds, while the shards themselves are written by pool
+    workers via apply_async, whose exceptions are discarded because .get() is never
+    called. Hit for real when pyarrow was missing at packaging time -- every worker
+    failed, data.list still listed all the shard paths, and the damage only surfaced
+    much later as training silently loading zero batches and CosyVoice3's
+    executor.cv() dying on `KeyError: 'tag'`.
+    """
+    data_list = parquet_dir / "data.list"
+    if not data_list.exists():
+        raise RuntimeError(f"{data_list} was not written; parquet packaging did not complete")
+
+    referenced = [Path(line.strip()) for line in data_list.read_text().splitlines() if line.strip()]
+    missing = [p for p in referenced if not p.exists()]
+    if missing or not referenced:
+        raise RuntimeError(
+            f"parquet packaging reported success but {len(missing)}/{len(referenced)} shards are "
+            f"missing under {parquet_dir}. This usually means the pool workers failed silently "
+            f"(a missing pyarrow is the classic cause). First missing: {missing[:3]}"
+        )
+    logger.info("verified %d parquet shard(s) in %s", len(referenced), parquet_dir)
 
 
 def run_full_data_prep(speaker_prefix: str) -> None:
