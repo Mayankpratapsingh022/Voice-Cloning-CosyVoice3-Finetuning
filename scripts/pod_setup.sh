@@ -54,7 +54,17 @@ if [ ! -f "$WORKSPACE/.setup_complete" ]; then
 
   echo "[pod_setup] (4/7) installing CosyVoice3 requirements.txt -- includes deepspeed, which"
   echo "[pod_setup]     compiles CUDA extensions from source and can take 5-15 min on its own"
-  pip install -r "$REPO_ROOT/requirements.txt" || true  # some deps in this file are platform-conditional; non-fatal
+  # No `|| true` here. It used to be here on the (wrong) assumption that this file's
+  # platform-conditional lines (e.g. `onnxruntime==...; sys_platform == "darwin"`)
+  # needed protecting -- they don't, pip's own marker evaluation already skips those
+  # correctly on its own (confirmed live: "Ignoring onnxruntime: markers ... don't
+  # match your environment"). What `|| true` actually did was mask a real failure
+  # (openai-whisper's build breaking) and let the script limp to the end and touch
+  # .setup_complete anyway -- so a later, actually-fixed rerun kept seeing that stale
+  # marker and skipping this whole block, silently, for every run since. If this line
+  # fails now, the script stops (set -e) and .setup_complete is never written, so the
+  # next run properly retries instead of lying about having succeeded.
+  pip install -r "$REPO_ROOT/requirements.txt"
 
   echo "[pod_setup] (5/7) installing onnxruntime-gpu"
   pip install onnxruntime-gpu==1.18.0
